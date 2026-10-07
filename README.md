@@ -212,7 +212,7 @@ Gesture-Recognition/
 │
 ├── training.ipynb
 ├── vision_predict.py
-├── model_.pth
+├── model_synthesized_94_97.pth
 ├── requirements.txt
 └── README.md
 ```
