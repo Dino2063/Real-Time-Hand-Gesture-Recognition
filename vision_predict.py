@@ -1,207 +1,220 @@
-import cv2
 import torch
-import torchvision
-from pathlib import Path
 from torch import nn
 from torchvision import transforms
-from torchvision.transforms import ToTensor
-from torch.nn.modules.pooling import MaxPool2d
+import cv2
+from collections import Counter
+from pathlib import Path
 from PIL import Image
-from collections import Counter    #for vote confidence
 import time as timer
 
 
 
-#--------------------------------------------------------------------------------------------------------------------------
-vid=cv2.VideoCapture(0)
-model_path=Path("Model1best_83_95.pth")  #u CAN change it as u want
-class_names=["no_gesture","palm","one","peace","thumb_index","ok","three"]
+def initialize_model(model_path,device):
+    class Hand_gesture_recog(nn.Module):
+        def __init__(self,in_features,hidden_conv_units,out_features,hidden_linear_units):
+            super().__init__()
+            self.conv_layer_1=nn.Sequential(
+                nn.Conv2d(in_channels=in_features,out_channels=hidden_conv_units,kernel_size=(5,5),padding=2,stride=1),
+                nn.BatchNorm2d(hidden_conv_units),
+                nn.ReLU(),
+                nn.Conv2d(in_channels=hidden_conv_units,out_channels=48,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(48),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2,2),stride=2)
+            )
+            self.conv_layer_2=nn.Sequential(
+                nn.Conv2d(in_channels=48,out_channels=48,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(48),
+                nn.ReLU(),
+                nn.Conv2d(in_channels=48,out_channels=64,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2,2),stride=2)
+            )
+            self.conv_layer_3=nn.Sequential(
+                nn.Conv2d(in_channels=64,out_channels=64,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(),
+                nn.Conv2d(in_channels=64,out_channels=80,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(80),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2,2),stride=2)
+            )
 
-frame_width=int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
-frame_height=int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-resolution=(frame_width,frame_height)   #its 640,480 for experimenting
-print(resolution)
-x1, y1 = 220, 90
-x2, y2 = 470, 390
-print(torch.__version__)
-#---------------------------------------------------------------------------------------------------------------------------
+            self.conv_layer_4=nn.Sequential(
+                nn.Conv2d(in_channels=80,out_channels=80,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(80),
+                nn.ReLU(),
+                nn.Conv2d(in_channels=80,out_channels=96,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(96),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2,2),stride=2)
+            )
+            self.conv_layer_5=nn.Sequential(
+                nn.Conv2d(in_channels=96,out_channels=108,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(108),
+                nn.ReLU(),
+                nn.Conv2d(in_channels=108,out_channels=128,kernel_size=(5,5),padding=1,stride=1),
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2,2),stride=2),
+                nn.MaxPool2d(kernel_size=(2,2),stride=2)
+            )
+            self.linear_layer=nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(in_features=4608,out_features=hidden_linear_units),
+                nn.ReLU(),
+                nn.Linear(in_features=hidden_linear_units,out_features=out_features)
+            )
+        def forward(self,X_tensor):
+            return self.linear_layer(self.conv_layer_5(self.conv_layer_4(self.conv_layer_3(self.conv_layer_2(self.conv_layer_1(X_tensor))))))
+    
 
-transform=transforms.Compose([
-   transforms.Resize((128,128)),
-   transforms.ToTensor()
-])
+    in_features=3
+    hidden_conv_features=32
+    hidden_linear_features=38
+    out_features=7
 
+    model=Hand_gesture_recog(in_features=in_features,hidden_conv_units=hidden_conv_features,out_features=out_features,hidden_linear_units=hidden_linear_features)
+    model.load_state_dict(torch.load(f=model_path,map_location=device))
+    model.to(device)
+    model.eval()
+    
+    return model
 
-
-
-#----------------------------------------------------------------------------------------------------------------------------
-#So,to eval the input image using the trained model, i gotta pass in the architecture my model trained in .
-class Hand_gesture(nn.Module):
-  def __init__(self,input_features,hidden_units,output_features):
-    super().__init__()  #to make sure parent class creates necessary variables
-    self.conv_layer_1=nn.Sequential(
-        nn.Conv2d(in_channels=input_features,out_channels=hidden_units,kernel_size=3,padding=1,stride=1),
-        nn.BatchNorm2d(hidden_units),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=hidden_units,out_channels=hidden_units,kernel_size=3,padding=1,stride=1),
-        nn.BatchNorm2d(hidden_units),
-        nn.ReLU(),
-        nn.MaxPool2d(kernel_size=2,stride=2)
-    )
-    self.conv_layer_2=nn.Sequential(
-        nn.Conv2d(in_channels=hidden_units,out_channels=hidden_units,kernel_size=3,padding=1,stride=1),
-        nn.BatchNorm2d(hidden_units),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=hidden_units,out_channels=hidden_units,kernel_size=3,padding=1,stride=1),
-        nn.BatchNorm2d(hidden_units),
-        nn.ReLU(),
-        nn.MaxPool2d(kernel_size=2,stride=2)
-    )
-    self.conv_layer_3=nn.Sequential(
-        nn.Conv2d(in_channels=hidden_units,out_channels=hidden_units,kernel_size=3,padding=1,stride=1),
-        nn.BatchNorm2d(hidden_units),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=hidden_units,out_channels=hidden_units,kernel_size=3,padding=1,stride=1),
-        nn.BatchNorm2d(hidden_units),
-        nn.ReLU(),
-        nn.MaxPool2d(kernel_size=2,stride=2)
-    )
-    self.Linear_layer=nn.Sequential(
-        nn.Flatten(),
-        nn.Linear(
-            in_features=hidden_units*256,
-            out_features=output_features
-        )
-
-    )
-  def forward(self,X):
-    x=self.conv_layer_1(X)
-    x=self.conv_layer_2(x)
-    x=self.conv_layer_3(x)
-    x=self.Linear_layer(x)
-    return x
-
-  
-#----------------------------------------------------------------------------------------------------------------
-#loading trained_model
-model_1=Hand_gesture(input_features=3,hidden_units=32,output_features=7)
-
-model_1.load_state_dict(torch.load( (model_path) , map_location=torch.device("cpu") ))
-model_1.eval()
-#-------------------------------------------------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-#-----------------------------------------------------------------------------------------------------
-predictions_5=[]
-guessed_dict={}
-
-key_press=False  #for countdown 
-while True:
-    condition,frame=vid.read()
-    #frame_gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-    #frame_gray_blurred=cv2.GaussianBlur(frame_gray,(3,3),1.5)
-    #clahe_instance=cv2.createCLAHE(clipLimit=2,tileGridSize=(7,7))
-    #frame_gray_clahed=clahe_instance.apply(frame_gray_blurred)
-
-    if guessed_dict:
-       for key,value in guessed_dict.items():
-          cv2.putText(frame,("Guessed_gesture:"+str(key)),(400,40),cv2.FONT_HERSHEY_COMPLEX,0.5,(0, 165, 255),1)
-          cv2.putText(frame,(("Confidence:"+str(value))),(400,80),cv2.FONT_HERSHEY_COMPLEX,0.5,(0, 165, 255),1)
-          
-
+def predict(model,device):
+    objective_list=["no_gesture","ok","one","palm","peace","three","thumb_index"]
+    key_press=False
+    print_key=False
+    bounce=True
+    size=(512,512)
+    prediction_list=[]
+    confidence=0
+    gesture={}   
+    frame_count=0
+    
+    
+    
+    vid=cv2.VideoCapture(0)
+    x1, y1 = 220, 90   #rectangle frame creaton coordinates
+    x2, y2 = 470, 390
     
 
     
+    while True:
+        frame_count+=1
+        cond,frame=vid.read()
+        
+        if not cond: # to prevent the program from breaking if it fails to return a frame
+            break
+        
+        
+        
+        cropped_img=frame[y1:y2,x1:x2]
+        cropped_img_rgb=cv2.cvtColor(cropped_img,cv2.COLOR_BGR2RGB)  #it is cause pil img accepts from array but in default it expects an rgb, otherwise if we simply pass bgr , it will stay bgr in tensor form ,which wont work
+        
+        if gesture:
+            for class_name,confidence in gesture.items():
+                cv2.putText(frame,"Predicted_class: "+" "+class_name,(400,40),cv2.FONT_HERSHEY_COMPLEX,0.5,(0,165,255),1)
+                cv2.putText(frame,"Confidence_level: "+" "+str(confidence)+"%",(400,80),cv2.FONT_HERSHEY_COMPLEX,0.5,(0,165,255),1)
+                
+        
+        if key_press:
+            end=timer.time()
+            time_lapse=round( (end-start) ,2)
+            cv2.putText(frame,"Time_passed:"+str(time_lapse),(10,40), cv2.FONT_HERSHEY_COMPLEX, 1,(0,165,255), 1)
+            
+            
+            if frame_count%3==0: # only processes every 3 frames, to prevent lag 
+                
+                #pre processing 
+                pil_img=Image.fromarray(cropped_img_rgb)
+                pil_resized=transforms.functional.resize(pil_img,size)
+                img_tensor=transforms.functional.to_tensor(pil_resized)
+                img_batched=img_tensor.unsqueeze(0).to(device)
+                
+                with torch.inference_mode():
+                    y_preds=model(img_batched).argmax(dim=1)
+                prediction_list.append(y_preds.item())
+                
+                if len(prediction_list)>5:
+                    prediction_list.pop(0)
+                if len(prediction_list)==5:
+                    frequency_counter=Counter(prediction_list)
+                    class_idx,frequency=frequency_counter.most_common(1)[0]
+                    confidence=(frequency/len(prediction_list)) *100
+                    if print_key and confidence>=60:
+                        key_press=False
+                        print_key=False
+                        bounce=True
+                        class_name=objective_list[class_idx]
+                        gesture[class_name]=confidence   #it will be classname:confidence level and will only store once per click and clear every press of z
+            
+            #for bounce correction : i.e we want the z key to be not pressed multiple times during the processing ,so we add a limit of 3 sec
+            
+            if time_lapse>4:
+                key_press=False 
+                print_key=False
+                bounce=True
+                
+            
+            
+        
+        
+        key=chr(cv2.waitKey(1) & 0xFF)
+        
 
-    if not condition:
-        break
-
-    cropped = frame[y1:y2, x1:x2]
-    cropped_RGB=cv2.cvtColor(cropped,cv2.COLOR_BGR2RGB)
-
-
+        
+        cv2.imshow("Magnified_view",cropped_img)
+        cv2.rectangle(frame,(x1,y1),(x2,y2),(0,250,0),2)
+        cv2.imshow("w1",frame)
+        if key.lower()=='z' and bounce==True:
+            gesture.clear()
+            prediction_list.clear()
+            key_press=True
+            print_key=True
+            bounce=False
+            start=timer.time()
+        elif key.lower()=='q':
+            break
+        else:
+            pass
+        
+    
+    vid.release()
+    cv2.destroyAllWindows()
+    return
+    
+        
+            
+        
+    
     
 
+
+def main():
+    
+    model_path=Path("model_synthesized_94_97.pth")
+    
+    if not model_path.exists():
+        print("Please put the learned model(.pth) file inside this folder. Otherwise it wont be able to analyze at all")
+        return
+    
+    start_command=input("Welcome to my hand gesture recog program.\nYour webcam will turn on once u type X , when ur webcam turns on put your hand in the rectangular frame and make a gesture and press 'Z' in your keyboard to make a prediction.\nDo remember that we only have 7 different gestures that my model can determine at the moment,which includes (one,two/peace,three,ok,thumb_index,palm,no_gesture)\nPlease click on the w1 window and then press your keys\n")
+    if start_command.lower() != 'x':
+        print("You didnt type x, operation ended")
+        return
+    
+    device="cuda" if torch.cuda.is_available() else "cpu"
+    
+
+    model=initialize_model(model_path,device)
+    
+    predict(model,device)
     
     
-    frame_img=Image.fromarray(cropped_RGB)
-    frame_tensor=transform(frame_img).unsqueeze(dim=0)
-
-   
 
 
-    if key_press:
-       end=timer.time()
-       timer_count=round( (3.0 - (end-start)),2)
-       cv2.putText(frame,("Timer:"+str(timer_count)),(10,40),cv2.FONT_HERSHEY_COMPLEX,1,(0, 165, 255),1)
-
-       with torch.inference_mode():
-        logits=model_1(frame_tensor)
-
-        predictions=logits.argmax(dim=1)
-        ##
-        '''
-
-        pred = logits.argmax(1)
-        probs = torch.softmax(logits, dim=1)[0]
-
-        for name, p in zip(class_names, probs):
-            print(f"{name:12} {p:.3f}")
-        #''' #use this only when u want to check whts the probability for other classes
-       
-
-        predictions_5.append(predictions.item())
-        if len(predictions_5)>70:
-           predictions_5.pop(0)
-
-        if len(predictions_5)==70:
-           counts = Counter(predictions_5)
-           predicted_class, votes = counts.most_common(1)[0]
-           confidence=(votes/len(predictions_5)) *100
-           
-           if (confidence > 70) and print_count:
-             print_count=False
-             guessed_dict[class_names[predicted_class]]=confidence
-             
-             
-             print(class_names[predicted_class], "confidence:",confidence)
-
-             
-
-        if (end-start)>=3:
-           key_press=False
-       
-
-
-
+if __name__=="__main__":
+    main()
     
-       
-
-    
-    cv2.rectangle(frame,(x1,y1),(x2,y2),(0,250,0),2)
-    cv2.imshow("w1",frame)
-    cv2.imshow("w2",cropped)
-
-    key=(chr(cv2.waitKey(1) & 0xFF) ).lower() #the reason why i didnt do this seperately for Z and Q is that its a 1 time consumption key.
-
-    if key == 'q':
-       break
-
-    if (not key_press) and (key == 'z'):
-       predictions_5.clear()
-       guessed_dict.clear()
-       start=timer.time()
-       key_press=True
-       print_count=True
-
-vid.release()
-cv2.destroyAllWindows()
